@@ -1,0 +1,65 @@
+# ==========================================
+# Security & Environment Variables (Private)
+# ==========================================
+.env
+.env.*
+!.env.example
+*.env
+*.env.local
+*.env.production
+
+# ==========================================
+# Databases & Local Data
+# ==========================================
+*.db
+*.sqlite
+*.sqlite3
+backend/wanderlust_local.db
+backend/test_wanderlust.db
+backend/uploads/
+uploads/
+
+# ==========================================
+# Python & Backend
+# ==========================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+.coverage
+htmlcov/
+dist/
+build/
+*.egg-info/
+venv/
+.venv/
+env/
+
+# ==========================================
+# Flutter / Dart & Android / iOS
+# ==========================================
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+.pub-cache/
+.pub/
+frontend/build/
+build/
+*.apk
+*.aab
+*.ipa
+.gradle/
+local.properties
+GeneratedPluginRegistrant.java
+
+# ==========================================
+# IDE & System Files
+# ==========================================
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
