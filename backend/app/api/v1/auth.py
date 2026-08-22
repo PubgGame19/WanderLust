@@ -3,7 +3,7 @@ import re
 import secrets
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
-from sqlalchemy import or_
+from sqlalchemy import or_, func
 
 from app.core.config import settings
 from app.core.database import get_db
@@ -21,18 +21,21 @@ def _generate_unique_username(db: Session, base_name: str) -> str:
     elif len(cleaned) > 40:
         cleaned = cleaned[:40]
     
-    candidate = cleaned
-    counter = 1
-    while db.query(User).filter(User.username == candidate).first():
-        candidate = f"{cleaned}_{counter}"
-        counter += 1
-    return candidate
+    username = cleaned
+    count = 1
+    while db.query(User).filter(func.lower(User.username) == username.lower()).first():
+        username = f"{cleaned}_{count}"
+        count += 1
+    return username
 
 @router.post("/register", response_model=Token, status_code=status.HTTP_201_CREATED)
 def register(user_in: UserCreate, db: Session = Depends(get_db)):
     """Registers a new user profile and returns access token."""
+    email_clean = user_in.email.strip().lower()
+    username_clean = user_in.username.strip()
+
     existing_user = db.query(User).filter(
-        or_(User.email == user_in.email, User.username == user_in.username)
+        or_(func.lower(User.email) == email_clean, func.lower(User.username) == username_clean.lower())
     ).first()
     if existing_user:
         raise HTTPException(
@@ -42,8 +45,8 @@ def register(user_in: UserCreate, db: Session = Depends(get_db)):
     
     hashed_password = get_password_hash(user_in.password)
     user = User(
-        email=user_in.email,
-        username=user_in.username,
+        email=email_clean,
+        username=username_clean,
         password_hash=hashed_password,
         full_name=user_in.full_name,
         bio=user_in.bio,
@@ -63,8 +66,9 @@ def register(user_in: UserCreate, db: Session = Depends(get_db)):
 @router.post("/login", response_model=Token)
 def login(login_data: UserLogin, db: Session = Depends(get_db)):
     """Authenticates user and returns JWT token."""
+    identifier = login_data.email_or_username.strip()
     user = db.query(User).filter(
-        or_(User.email == login_data.email_or_username, User.username == login_data.email_or_username)
+        or_(func.lower(User.email) == identifier.lower(), func.lower(User.username) == identifier.lower())
     ).first()
     
     if not user or not verify_password(login_data.password, user.password_hash):

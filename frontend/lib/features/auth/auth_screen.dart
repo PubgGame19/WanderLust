@@ -24,7 +24,9 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
   final _usernameCtrl = TextEditingController();
   final _fullNameCtrl = TextEditingController();
   final _passwordCtrl = TextEditingController();
+  final _confirmPasswordCtrl = TextEditingController();
   bool _obscurePassword = true;
+  bool _obscureConfirmPassword = true;
 
   @override
   void dispose() {
@@ -32,6 +34,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
     _usernameCtrl.dispose();
     _fullNameCtrl.dispose();
     _passwordCtrl.dispose();
+    _confirmPasswordCtrl.dispose();
     super.dispose();
   }
 
@@ -39,6 +42,8 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
     if (_isSignUp == isSignUp) return;
     setState(() {
       _isSignUp = isSignUp;
+      _passwordCtrl.clear();
+      _confirmPasswordCtrl.clear();
       _formKey.currentState?.reset();
     });
   }
@@ -402,11 +407,17 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                             controller: _passwordCtrl,
                             obscureText: _obscurePassword,
                             style: GoogleFonts.inter(fontSize: 14),
+                            autofillHints: _isSignUp ? const [AutofillHints.newPassword] : const [AutofillHints.password],
+                            textInputAction: _isSignUp ? TextInputAction.next : TextInputAction.done,
+                            onFieldSubmitted: (_) {
+                              if (!_isSignUp) _handleSubmit();
+                            },
                             decoration: _buildInputDecoration(
                               hintText: _isSignUp ? "At least 6 characters" : "••••••••",
                               prefixIcon: Icons.lock_outline_rounded,
                               isDark: isDark,
                               suffixIcon: IconButton(
+                                tooltip: _obscurePassword ? "Show password" : "Hide password",
                                 icon: Icon(
                                   _obscurePassword ? Icons.visibility_off_outlined : Icons.visibility_outlined,
                                   size: 20,
@@ -423,7 +434,79 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                               return null;
                             },
                           ),
-                          const SizedBox(height: 20),
+
+                          // Confirm Password Field (Sign Up Mode)
+                          if (_isSignUp) ...[
+                            const SizedBox(height: 16),
+                            _buildFieldLabel("Confirm Password", isDark),
+                            const SizedBox(height: 6),
+                            TextFormField(
+                              controller: _confirmPasswordCtrl,
+                              obscureText: _obscureConfirmPassword,
+                              style: GoogleFonts.inter(fontSize: 14),
+                              autofillHints: const [AutofillHints.newPassword],
+                              textInputAction: TextInputAction.done,
+                              onFieldSubmitted: (_) => _handleSubmit(),
+                              decoration: _buildInputDecoration(
+                                hintText: "Re-enter password",
+                                prefixIcon: Icons.lock_reset_rounded,
+                                isDark: isDark,
+                                suffixIcon: IconButton(
+                                  tooltip: _obscureConfirmPassword ? "Show password" : "Hide password",
+                                  icon: Icon(
+                                    _obscureConfirmPassword ? Icons.visibility_off_outlined : Icons.visibility_outlined,
+                                    size: 20,
+                                    color: isDark ? AppColors.darkTextMuted : AppColors.lightTextMuted,
+                                  ),
+                                  onPressed: () => setState(() => _obscureConfirmPassword = !_obscureConfirmPassword),
+                                ),
+                              ),
+                              validator: (val) {
+                                if (val == null || val.trim().isEmpty) return "Please confirm your password";
+                                if (val != _passwordCtrl.text) {
+                                  return "Passwords do not match";
+                                }
+                                return null;
+                              },
+                            ),
+                          ],
+
+                          // Demo credentials helper (Sign In Mode)
+                          if (!_isSignUp) ...[
+                            const SizedBox(height: 8),
+                            Align(
+                              alignment: Alignment.centerRight,
+                              child: TextButton.icon(
+                                style: TextButton.styleFrom(
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                  visualDensity: VisualDensity.compact,
+                                ),
+                                icon: const Icon(Icons.flash_on_rounded, size: 14, color: AppColors.sunsetAmber),
+                                label: Text(
+                                  "Quick Demo Login (@rohan_travels)",
+                                  style: GoogleFonts.inter(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w600,
+                                    color: AppColors.sunsetAmber,
+                                  ),
+                                ),
+                                onPressed: () {
+                                  setState(() {
+                                    _emailCtrl.text = "rohan_travels";
+                                    _passwordCtrl.text = "wanderlust2026";
+                                  });
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                      backgroundColor: AppColors.sunsetAmber,
+                                      content: Text("Demo credentials filled (@rohan_travels / wanderlust2026)"),
+                                      duration: Duration(seconds: 2),
+                                    ),
+                                  );
+                                },
+                              ),
+                            ),
+                          ],
+                          const SizedBox(height: 16),
 
                           // C. PRIMARY SUBMIT BUTTON (Sign In / Create Account)
                           SizedBox(
