@@ -239,3 +239,42 @@ def test_multiple_photos_appear_in_location_feed_and_trip_detail(client: TestCli
     assert trip_detail_res.status_code == 200
     place_exp = trip_detail_res.json()["places"][0]["experience"]
     assert len(place_exp["raw_layer"]["photos"]) == 2
+
+def test_image_exif_metadata_extraction_and_photo_verification(client: TestClient):
+    from PIL import Image
+    from app.services.storage_service import storage_service
+
+    # Create image bytes with synthetic EXIF
+    img = Image.new("RGB", (100, 100), color="blue")
+    exif = img.getexif()
+    exif[271] = "Apple"
+    exif[272] = "iPhone 15 Pro"
+    exif[306] = "2026:08:22 12:00:00"
+
+    buf = io.BytesIO()
+    img.save(buf, format="JPEG", exif=exif)
+    buf.seek(0)
+    img_bytes = buf.getvalue()
+
+    # Extract EXIF via storage service
+    exif_data = storage_service._extract_exif_metadata(img_bytes)
+    assert exif_data["is_verified_authentic"] is True
+    assert "Apple" in exif_data["camera_model"]
+    assert "iPhone 15 Pro" in exif_data["camera_model"]
+    assert exif_data["taken_at"] is not None
+
+    # Upload this EXIF image via API
+    reg = client.post("/api/v1/auth/register", json={
+        "email": "exif_tester@test.com",
+        "username": "exif_verified_user",
+        "password": "password123"
+    })
+    token = reg.json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    upload_file = ("exif_photo.jpg", io.BytesIO(img_bytes), "image/jpeg")
+    res_upload = client.post("/api/v1/media/upload", files=[("files", upload_file)], headers=headers)
+    assert res_upload.status_code == 201
+    upload_data = res_upload.json()[0]
+    assert upload_data["is_verified_authentic"] is True
+    assert "iPhone 15 Pro" in upload_data["camera_model"]

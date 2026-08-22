@@ -8,7 +8,9 @@ import '../models/models.dart';
 class ApiService {
   final String baseUrl;
   final http.Client _client;
-  static const Duration requestTimeout = Duration(seconds: 20);
+  static const Duration requestTimeout = Duration(seconds: 45);
+  static const Duration aiQueryTimeout = Duration(seconds: 90); // AI LLM calls take longer
+  static const Duration uploadTimeout = Duration(seconds: 90);
 
   ApiService({String? baseUrl, http.Client? client})
       : baseUrl = baseUrl ?? AppConfig.apiBaseUrl,
@@ -57,42 +59,31 @@ class ApiService {
         ? AppConfig.rawBaseUrl.substring(0, AppConfig.rawBaseUrl.length - 1)
         : AppConfig.rawBaseUrl;
     final relPath = url.startsWith('/') ? url : '/$url';
-    return "$rawBase$relPath";
+    return '$rawBase$relPath';
   }
 
-  // 1. Authentication & Profile
-  Future<UserModel> login(String emailOrUsername, String password) async {
-    final uri = Uri.parse('$baseUrl/auth/login');
-    final response = await _client.post(
-      uri,
-      headers: {'Content-Type': 'application/json', 'Accept': 'application/json'},
-      body: jsonEncode({'email_or_username': emailOrUsername, 'password': password}),
-    ).timeout(requestTimeout);
+  // ==========================================
+  // 1. Authentication
+  // ==========================================
 
-    if (response.statusCode == 200) {
-      final data = jsonDecode(response.body);
-      final token = data['access_token'];
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString('auth_jwt_token', token);
-      await prefs.setBool('is_guest_mode', false);
-      return UserModel.fromJson(data['user']);
-    } else {
-      final errorData = _parseError(response.body);
-      throw Exception(errorData);
-    }
-  }
-
-  Future<UserModel> register(String email, String username, String password, {String? fullName}) async {
+  Future<UserModel> register(
+    String email,
+    String username,
+    String password, {
+    String? fullName,
+  }) async {
     final uri = Uri.parse('$baseUrl/auth/register');
+    final body = jsonEncode({
+      'email': email,
+      'username': username,
+      'password': password,
+      'full_name': fullName,
+    });
+
     final response = await _client.post(
       uri,
       headers: {'Content-Type': 'application/json', 'Accept': 'application/json'},
-      body: jsonEncode({
-        'email': email,
-        'username': username,
-        'password': password,
-        'full_name': fullName,
-      }),
+      body: body,
     ).timeout(requestTimeout);
 
     if (response.statusCode == 201) {
@@ -108,12 +99,51 @@ class ApiService {
     }
   }
 
-  Future<UserModel> googleLogin(String idToken) async {
-    final uri = Uri.parse('$baseUrl/auth/google');
+  Future<UserModel> login(String emailOrUsername, String password) async {
+    final uri = Uri.parse('$baseUrl/auth/login');
+    final body = jsonEncode({
+      'email_or_username': emailOrUsername,
+      'password': password,
+    });
+
     final response = await _client.post(
       uri,
       headers: {'Content-Type': 'application/json', 'Accept': 'application/json'},
-      body: jsonEncode({'id_token': idToken}),
+      body: body,
+    ).timeout(requestTimeout);
+
+    if (response.statusCode == 200) {
+      final data = jsonDecode(response.body);
+      final token = data['access_token'];
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('auth_jwt_token', token);
+      await prefs.setBool('is_guest_mode', false);
+      return UserModel.fromJson(data['user']);
+    } else {
+      final errorData = _parseError(response.body);
+      throw Exception(errorData);
+    }
+  }
+
+  Future<UserModel> googleLogin({
+    String? idToken,
+    String? accessToken,
+    String? email,
+    String? name,
+    String? picture,
+  }) async {
+    final uri = Uri.parse('$baseUrl/auth/google');
+    final payload = <String, dynamic>{};
+    if (idToken != null && idToken.isNotEmpty) payload['id_token'] = idToken;
+    if (accessToken != null && accessToken.isNotEmpty) payload['access_token'] = accessToken;
+    if (email != null && email.isNotEmpty) payload['email'] = email;
+    if (name != null && name.isNotEmpty) payload['name'] = name;
+    if (picture != null && picture.isNotEmpty) payload['picture'] = picture;
+
+    final response = await _client.post(
+      uri,
+      headers: {'Content-Type': 'application/json', 'Accept': 'application/json'},
+      body: jsonEncode(payload),
     ).timeout(requestTimeout);
 
     if (response.statusCode == 200) {
@@ -380,8 +410,9 @@ class ApiService {
     double? lat,
     double? lng,
     double? budgetMax,
-    String currency = 'USD',
+    String currency = 'INR',
     String? placeType,
+    List<Map<String, String>>? chatHistory,
   }) async {
     final uri = Uri.parse('$baseUrl/ai/assistant/query');
     final headers = await _getHeaders();
@@ -392,9 +423,10 @@ class ApiService {
       'budget_max': budgetMax,
       'currency': currency,
       'place_type': placeType,
+      if (chatHistory != null && chatHistory.isNotEmpty) 'chat_history': chatHistory,
     });
 
-    final response = await _client.post(uri, headers: headers, body: body).timeout(requestTimeout);
+    final response = await _client.post(uri, headers: headers, body: body).timeout(aiQueryTimeout);
     if (response.statusCode == 200) {
       return AIAssistantResponseModel.fromJson(jsonDecode(response.body));
     } else {
@@ -405,8 +437,10 @@ class ApiService {
   String _parseError(String body) {
     try {
       final parsed = jsonDecode(body);
-      if (parsed is Map && parsed.containsKey('detail')) {
-        return parsed['detail'].toString();
+      if (parsed is Map) {
+        if (parsed.containsKey('detail')) return parsed['detail'].toString();
+        if (parsed.containsKey('message')) return parsed['message'].toString();
+        if (parsed.containsKey('error')) return parsed['error'].toString();
       }
       return body;
     } catch (_) {

@@ -147,3 +147,59 @@ def test_strict_spatial_normalization_and_review_submission(client: TestClient):
     assert review_item["raw_layer"]["expense_amount"] == 700.0
     assert review_item["raw_layer"]["currency"] == "INR"
     assert review_item["author"]["username"] == "mountain_rider_norm"
+
+def test_location_autocomplete_country_and_currency(client: TestClient):
+    # 1. Create test locations with different countries
+    client.post("/api/v1/locations", json={
+        "name": "Spiti Valley & Key Monastery",
+        "slug": "spiti-valley-key-monastery-test",
+        "continent": "Asia",
+        "country": "India",
+        "state_region": "Himachal Pradesh",
+        "city": "Kaza",
+        "place_type": "mountain",
+        "latitude": 32.2996,
+        "longitude": 78.0068,
+    })
+    client.post("/api/v1/locations", json={
+        "name": "Shibuya Crossing",
+        "slug": "shibuya-crossing-tokyo-test",
+        "continent": "Asia",
+        "country": "Japan",
+        "state_region": "Tokyo",
+        "city": "Tokyo",
+        "place_type": "monument",
+        "latitude": 35.6595,
+        "longitude": 139.7004,
+    })
+
+    # 2. Query prefix / substring for India location -> INR
+    res_india = client.get("/api/v1/locations/autocomplete?q=spiti")
+    assert res_india.status_code == 200
+    data_india = res_india.json()
+    assert len(data_india) >= 1
+    item_in = data_india[0]
+    assert "Spiti Valley" in item_in["name"]
+    assert item_in["country"] == "India"
+    assert item_in["dominant_currency"] == "INR"
+    assert "India (INR)" in item_in["display_label"]
+
+    # 3. Query prefix / substring for Japan location -> JPY
+    res_jp = client.get("/api/v1/locations/autocomplete?q=shibuya")
+    assert res_jp.status_code == 200
+    data_jp = res_jp.json()
+    assert len(data_jp) >= 1
+    item_jp = data_jp[0]
+    assert "Shibuya Crossing" in item_jp["name"]
+    assert item_jp["country"] == "Japan"
+    assert item_jp["dominant_currency"] == "JPY"
+    assert "Japan (JPY)" in item_jp["display_label"]
+
+    # 4. Empty query returns locations with dominant currency and display label
+    res_all = client.get("/api/v1/locations/autocomplete?limit=10")
+    assert res_all.status_code == 200
+    assert len(res_all.json()) >= 2
+    for loc in res_all.json():
+        assert "dominant_currency" in loc
+        assert "display_label" in loc
+        assert loc["dominant_currency"] in ["INR", "USD", "EUR", "JPY", "GBP"]

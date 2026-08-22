@@ -38,7 +38,8 @@ class AIExtractorService:
             )
 
         # 1. Attempt Gemini API if configured
-        if settings.GEMINI_API_KEY:
+        gemini_key = settings.GEMINI_API_KEY.strip() if settings.GEMINI_API_KEY else ""
+        if gemini_key and not gemini_key.startswith("YOUR_") and gemini_key != "mock_key":
             try:
                 result = self._call_gemini(raw_text, currency)
                 if result:
@@ -47,7 +48,8 @@ class AIExtractorService:
                 logger.warning(f"Gemini API extraction failed ({e}). Falling back.")
 
         # 2. Attempt OpenAI API if configured
-        if settings.OPENAI_API_KEY:
+        openai_key = settings.OPENAI_API_KEY.strip() if settings.OPENAI_API_KEY else ""
+        if openai_key and not openai_key.startswith("YOUR_") and openai_key != "mock_key":
             try:
                 result = self._call_openai(raw_text, currency)
                 if result:

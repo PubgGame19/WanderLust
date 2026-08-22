@@ -20,4 +20,3 @@ class User(Base):
     # Relationships
     reviews = relationship("Review", back_populates="user", cascade="all, delete-orphan")
     trips = relationship("Trip", back_populates="user", cascade="all, delete-orphan")
-    photos = relationship("ReviewPhoto", back_populates="user", cascade="all, delete-orphan")

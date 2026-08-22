@@ -42,6 +42,10 @@ def _format_feed_item(r: Review) -> ReviewFeedItem:
         model_version=r.ai_data.model_version if r.ai_data else None,
         processing_status=r.ai_data.processing_status if r.ai_data else "pending"
     )
+    photo_urls = [p.image_url for p in r.photos]
+    is_photo_verified = any(getattr(p, 'is_verified_authentic', False) for p in r.photos) if r.photos else False
+    camera_model = next((p.camera_model for p in r.photos if getattr(p, 'camera_model', None)), None) if r.photos else None
+
     raw_layer = ReviewRawLayer(
         original_text=r.original_text,
         expense_amount=float(r.expense_amount) if r.expense_amount is not None else None,
@@ -50,7 +54,9 @@ def _format_feed_item(r: Review) -> ReviewFeedItem:
         transport_mode=r.transport_mode,
         starting_location=r.starting_location,
         visit_date=r.visit_date,
-        photos=[p.image_url for p in r.photos]
+        photos=photo_urls,
+        is_photo_verified=is_photo_verified,
+        camera_model=camera_model
     )
     author_out = UserAuthorOut(
         id=r.user.id if r.user else "anonymous",
@@ -67,7 +73,9 @@ def _format_feed_item(r: Review) -> ReviewFeedItem:
         rating=r.rating,
         created_at=r.created_at,
         ai_layer=ai_layer,
-        raw_layer=raw_layer
+        raw_layer=raw_layer,
+        is_photo_verified=is_photo_verified,
+        camera_model=camera_model
     )
 
 @router.get("", response_model=List[TripListItemOut])

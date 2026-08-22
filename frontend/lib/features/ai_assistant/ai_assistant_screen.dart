@@ -92,11 +92,25 @@ class _AIAssistantScreenState extends ConsumerState<AIAssistantScreen> {
 
     final api = ref.read(apiServiceProvider);
 
+    // Build chat history from prior messages (skip the welcome msg at index 0)
+    final List<Map<String, String>> historyForApi = [];
+    for (int i = 1; i < _messages.length - 1; i++) {
+      final m = _messages[i];
+      // Only include the last 10 turns to keep context window manageable
+      if (_messages.length - 1 - i <= 10) {
+        historyForApi.add({
+          'role': m.isUser ? 'user' : 'model',
+          'text': m.text,
+        });
+      }
+    }
+
     try {
       final response = await api.queryAssistant(
         query: queryText,
         budgetMax: _budgetMax,
         currency: _currency,
+        chatHistory: historyForApi.isNotEmpty ? historyForApi : null,
       );
 
       setState(() {
@@ -108,18 +122,30 @@ class _AIAssistantScreenState extends ConsumerState<AIAssistantScreen> {
         _isLoading = false;
       });
     } catch (e) {
+      final errorStr = e.toString().replaceAll('Exception: ', '');
+      final isTimeout = errorStr.toLowerCase().contains('timeout') || errorStr.toLowerCase().contains('timed out');
+      
+      final displayError = isTimeout
+          ? "⏱️ Request timed out while connecting to the travel AI engine. Please verify your connection or try again."
+          : "⚠️ $errorStr";
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             backgroundColor: AppColors.challengeRed,
-            content: Text("AI Assistant Error: ${e.toString().replaceAll('Exception: ', '')}"),
+            content: Text(displayError),
+            action: SnackBarAction(
+              label: "Retry",
+              textColor: Colors.white,
+              onPressed: () => _handleSend(queryText),
+            ),
           ),
         );
       }
       setState(() {
         _messages.add(ChatMessage(
           isUser: false,
-          text: "I encountered an issue retrieving community intelligence. Please try again.\n\n*${e.toString().replaceAll('Exception: ', '')}*",
+          text: "$displayError\n\n_Tip: You can retry your question or rephrase it._",
         ));
         _isLoading = false;
       });

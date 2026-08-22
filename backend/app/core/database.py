@@ -58,6 +58,42 @@ def _auto_sync_sqlite_columns():
                     logger.info("Auto-syncing SQLite: Adding 'display_order' to 'review_photos'")
                     conn.execute(text("ALTER TABLE review_photos ADD COLUMN display_order INTEGER DEFAULT 0;"))
                     conn.commit()
+                if "camera_model" not in columns:
+                    logger.info("Auto-syncing SQLite: Adding 'camera_model' to 'review_photos'")
+                    conn.execute(text("ALTER TABLE review_photos ADD COLUMN camera_model VARCHAR(100);"))
+                    conn.commit()
+                if "taken_at" not in columns:
+                    logger.info("Auto-syncing SQLite: Adding 'taken_at' to 'review_photos'")
+                    conn.execute(text("ALTER TABLE review_photos ADD COLUMN taken_at DATETIME;"))
+                    conn.commit()
+                if "gps_latitude" not in columns:
+                    logger.info("Auto-syncing SQLite: Adding 'gps_latitude' to 'review_photos'")
+                    conn.execute(text("ALTER TABLE review_photos ADD COLUMN gps_latitude FLOAT;"))
+                    conn.commit()
+                if "gps_longitude" not in columns:
+                    logger.info("Auto-syncing SQLite: Adding 'gps_longitude' to 'review_photos'")
+                    conn.execute(text("ALTER TABLE review_photos ADD COLUMN gps_longitude FLOAT;"))
+                    conn.commit()
+                if "caption" not in columns:
+                    logger.info("Auto-syncing SQLite: Adding 'caption' to 'review_photos'")
+                    conn.execute(text("ALTER TABLE review_photos ADD COLUMN caption VARCHAR(255);"))
+                    conn.commit()
+                if "thumbnail_url" not in columns:
+                    logger.info("Auto-syncing SQLite: Adding 'thumbnail_url' to 'review_photos'")
+                    conn.execute(text("ALTER TABLE review_photos ADD COLUMN thumbnail_url VARCHAR(1000);"))
+                    conn.commit()
+                if "location_id" not in columns:
+                    logger.info("Auto-syncing SQLite: Adding 'location_id' to 'review_photos'")
+                    conn.execute(text("ALTER TABLE review_photos ADD COLUMN location_id VARCHAR;"))
+                    conn.commit()
+                if "is_flagged" not in columns:
+                    logger.info("Auto-syncing SQLite: Adding 'is_flagged' to 'review_photos'")
+                    conn.execute(text("ALTER TABLE review_photos ADD COLUMN is_flagged BOOLEAN DEFAULT 0;"))
+                    conn.commit()
+                if "is_verified_authentic" not in columns:
+                    logger.info("Auto-syncing SQLite: Adding 'is_verified_authentic' to 'review_photos'")
+                    conn.execute(text("ALTER TABLE review_photos ADD COLUMN is_verified_authentic BOOLEAN DEFAULT 0;"))
+                    conn.commit()
     except Exception as e:
         logger.warning("SQLite auto-migration check note: %s", e)
 

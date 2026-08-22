@@ -10,13 +10,18 @@ class AIExtractionResult(BaseModel):
     sentiment: Literal["positive", "mixed", "negative", "neutral"] = Field(..., description="Overall review sentiment.")
     extracted_budget_per_person: Optional[float] = Field(default=None, description="Numeric cost per person if explicitly mentioned, otherwise null.")
 
+class ChatHistoryTurn(BaseModel):
+    role: str = Field(..., description="'user' or 'model'")
+    text: str = Field(..., description="Message text for this turn")
+
 class AIAssistantQueryRequest(BaseModel):
     query: str = Field(..., min_length=2, description="User travel question or itinerary search")
     latitude: Optional[float] = None
     longitude: Optional[float] = None
     budget_max: Optional[float] = None
-    currency: Optional[str] = "USD"
+    currency: Optional[str] = "INR"
     place_type: Optional[str] = None
+    chat_history: Optional[List[dict]] = Field(default=None, description="Prior chat turns for multi-turn context")
 
 class AIAssistantCitation(BaseModel):
     location_name: str

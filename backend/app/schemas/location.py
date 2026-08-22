@@ -28,6 +28,19 @@ class LocationOut(LocationBase):
     average_rating: Optional[float] = None
     review_count: Optional[int] = 0
 
+class LocationAutocompleteOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    name: str
+    city: Optional[str] = None
+    state_region: Optional[str] = None
+    country: str
+    dominant_currency: str = "USD"
+    place_type: Optional[str] = None
+    cover_image_url: Optional[str] = None
+    display_label: str
+
 class LocationAIInsightsOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

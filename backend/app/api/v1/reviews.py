@@ -8,14 +8,14 @@ from app.models.user import User
 from app.models.location import Location
 from app.models.review import Review
 from app.models.review_photo import ReviewPhoto
-from app.schemas.review import ReviewCreate, ReviewCreatedResponse
+from app.schemas.review import ReviewCreate, ReviewCreateResponse
 from app.api.v1.deps import get_current_user
 from app.services.queue_service import queue_service
 
 logger = logging.getLogger("wanderlust.reviews")
 router = APIRouter(prefix="/reviews", tags=["Reviews"])
 
-@router.post("", response_model=ReviewCreatedResponse, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=ReviewCreateResponse, status_code=status.HTTP_201_CREATED)
 def submit_review(
     review_in: ReviewCreate,
     current_user: User = Depends(get_current_user),
@@ -82,10 +82,11 @@ def submit_review(
     queue_service.enqueue_review_job(job_payload)
 
     # 4. Return HTTP 201 Response with ai_status: pending
-    return ReviewCreatedResponse(
+    return ReviewCreateResponse(
         review_id=new_review.id,
         location_id=new_review.location_id,
         trip_id=new_review.trip_id,
+        user_id=new_review.user_id,
         rating=new_review.rating,
         created_at=new_review.created_at,
         ai_status="pending",

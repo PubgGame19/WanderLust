@@ -7,11 +7,45 @@ from app.core.database import get_db, calculate_haversine_distance_km
 from app.models.location import Location
 from app.models.review import Review
 from app.models.location_ai_insights import LocationAIInsights
-from app.schemas.location import LocationCreate, LocationOut, LocationAIInsightsOut, LocationFeedResponse
+from app.schemas.location import LocationCreate, LocationOut, LocationAutocompleteOut, LocationAIInsightsOut, LocationFeedResponse
 from app.schemas.review import ReviewFeedItem, ReviewAILayer, ReviewRawLayer
 from app.schemas.user import UserAuthorOut
 
 router = APIRouter(prefix="/locations", tags=["Locations"])
+
+COUNTRY_CURRENCY_MAP = {
+    "india": "INR",
+    "united states": "USD",
+    "usa": "USD",
+    "us": "USD",
+    "united kingdom": "GBP",
+    "uk": "GBP",
+    "japan": "JPY",
+    "germany": "EUR",
+    "france": "EUR",
+    "italy": "EUR",
+    "spain": "EUR",
+    "europe": "EUR",
+    "thailand": "THB",
+    "vietnam": "VND",
+    "indonesia": "IDR",
+    "bali": "IDR",
+    "australia": "AUD",
+    "canada": "CAD",
+    "singapore": "SGD",
+    "malaysia": "MYR",
+    "uae": "AED",
+    "dubai": "AED",
+    "switzerland": "CHF",
+    "sri lanka": "LKR",
+    "nepal": "NPR",
+    "bhutan": "BTN",
+}
+
+def get_country_currency(country: Optional[str], fallback: str = "USD") -> str:
+    if not country:
+        return fallback
+    return COUNTRY_CURRENCY_MAP.get(country.strip().lower(), fallback)
 
 def _format_review_feed_item(r: Review) -> ReviewFeedItem:
     ai_layer = ReviewAILayer(
@@ -26,6 +60,9 @@ def _format_review_feed_item(r: Review) -> ReviewFeedItem:
     )
 
     photo_urls = [p.image_url for p in r.photos]
+    is_photo_verified = any(getattr(p, 'is_verified_authentic', False) for p in r.photos) if r.photos else False
+    camera_model = next((p.camera_model for p in r.photos if getattr(p, 'camera_model', None)), None) if r.photos else None
+
     raw_layer = ReviewRawLayer(
         original_text=r.original_text,
         expense_amount=float(r.expense_amount) if r.expense_amount is not None else None,
@@ -34,7 +71,9 @@ def _format_review_feed_item(r: Review) -> ReviewFeedItem:
         transport_mode=r.transport_mode,
         starting_location=r.starting_location,
         visit_date=r.visit_date,
-        photos=photo_urls
+        photos=photo_urls,
+        is_photo_verified=is_photo_verified,
+        camera_model=camera_model
     )
 
     author_out = UserAuthorOut(
@@ -53,7 +92,9 @@ def _format_review_feed_item(r: Review) -> ReviewFeedItem:
         rating=r.rating,
         created_at=r.created_at,
         ai_layer=ai_layer,
-        raw_layer=raw_layer
+        raw_layer=raw_layer,
+        is_photo_verified=is_photo_verified,
+        camera_model=camera_model
     )
 
 @router.get("", response_model=List[LocationOut])
@@ -122,6 +163,63 @@ def list_locations(
 
     if lat is not None and lng is not None:
         results.sort(key=lambda x: x.distance_km if x.distance_km is not None else float('inf'))
+
+    return results
+
+@router.get("/autocomplete", response_model=List[LocationAutocompleteOut])
+def autocomplete_locations(
+    q: str = Query("", description="Search term for city, location, state, or country"),
+    limit: int = Query(10, ge=1, le=50),
+    db: Session = Depends(get_db)
+):
+    """
+    Returns fast location search autocomplete suggestions formatted with
+    City/Location Name, Country, and local Currency code (e.g. 'Mumbai, India (INR)').
+    """
+    query_str = q.strip().lower()
+    query = db.query(Location).filter(Location.verified == True)
+
+    if query_str:
+        term = f"%{query_str}%"
+        query = query.filter(
+            or_(
+                Location.name.ilike(term),
+                Location.city.ilike(term),
+                Location.state_region.ilike(term),
+                Location.country.ilike(term)
+            )
+        )
+
+    locations = query.limit(limit).all()
+    results: List[LocationAutocompleteOut] = []
+
+    for loc in locations:
+        currency = "USD"
+        if loc.ai_insights and loc.ai_insights.dominant_currency:
+            currency = loc.ai_insights.dominant_currency
+        else:
+            currency = get_country_currency(loc.country)
+
+        parts = [loc.name]
+        if loc.city and loc.city.lower() not in loc.name.lower():
+            parts.append(loc.city)
+        elif loc.state_region and loc.state_region.lower() not in loc.name.lower():
+            parts.append(loc.state_region)
+        parts.append(loc.country)
+        
+        display_label = f"{', '.join(parts)} ({currency})"
+
+        results.append(LocationAutocompleteOut(
+            id=loc.id,
+            name=loc.name,
+            city=loc.city,
+            state_region=loc.state_region,
+            country=loc.country,
+            dominant_currency=currency,
+            place_type=loc.place_type,
+            cover_image_url=loc.cover_image_url,
+            display_label=display_label
+        ))
 
     return results
 

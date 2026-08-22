@@ -172,8 +172,16 @@ class AuthNotifier extends StateNotifier<AuthState> {
       final GoogleSignInAccount? account = await googleSignIn.signIn();
       if (account != null) {
         final GoogleSignInAuthentication auth = await account.authentication;
-        final idToken = auth.idToken ?? auth.accessToken ?? "mock_google_id_token_${account.id}";
-        final user = await _api.googleLogin(idToken);
+        final idToken = auth.idToken;
+        final accessToken = auth.accessToken;
+
+        final user = await _api.googleLogin(
+          idToken: idToken,
+          accessToken: accessToken,
+          email: account.email,
+          name: account.displayName,
+          picture: account.photoUrl,
+        );
         final prefs = await SharedPreferences.getInstance();
         await prefs.setBool(_guestPrefKey, false);
         state = state.copyWith(isLoading: false, isAuthenticated: true, isGuest: false, user: user);

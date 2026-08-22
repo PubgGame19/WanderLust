@@ -1,135 +1,149 @@
 import os
+import io
 import uuid
 import logging
+from typing import Tuple, Dict, Any, Optional
 from datetime import datetime
-from typing import Dict, Any, List
-from fastapi import UploadFile, HTTPException, status
+from PIL import Image, ExifTags
 from app.core.config import settings
 
 logger = logging.getLogger("wanderlust.storage")
 
 class StorageService:
     def __init__(self):
-        self.upload_dir = os.path.abspath(settings.UPLOAD_DIR)
+        # Base directory for local uploads
+        self.upload_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "uploads")
         os.makedirs(self.upload_dir, exist_ok=True)
 
-    def validate_file(self, file: UploadFile, content: bytes) -> None:
-        """Validates MIME type, file extension, and maximum file size."""
-        # 1. Check size limit
-        max_bytes = settings.MAX_IMAGE_FILE_SIZE_MB * 1024 * 1024
-        if len(content) > max_bytes:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"File '{file.filename}' exceeds maximum allowed size of {settings.MAX_IMAGE_FILE_SIZE_MB}MB."
-            )
+    def _extract_exif_metadata(self, file_bytes: bytes) -> Dict[str, Any]:
+        """
+        Parses JPEG/TIFF EXIF data to extract camera model, timestamp, and GPS coordinates
+        to verify that the photo was captured by a physical device (anti-fake review mechanism).
+        """
+        metadata: Dict[str, Any] = {
+            "camera_model": None,
+            "taken_at": None,
+            "gps_latitude": None,
+            "gps_longitude": None,
+            "is_verified_authentic": False
+        }
+        try:
+            image = Image.open(io.BytesIO(file_bytes))
+            exif = image.getexif()
+            if not exif:
+                return metadata
 
-        # 2. Check extension
-        filename = file.filename or ""
-        ext = filename.split(".")[-1].lower() if "." in filename else ""
-        if ext not in settings.ALLOWED_IMAGE_EXTENSIONS:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Unsupported file extension '.{ext}'. Allowed types: {', '.join(settings.ALLOWED_IMAGE_EXTENSIONS)}"
-            )
+            # Extract Make & Model
+            make = exif.get(271) # Make tag ID
+            model = exif.get(272) # Model tag ID
+            if model:
+                model_str = str(model).strip()
+                if make and str(make).strip() not in model_str:
+                    metadata["camera_model"] = f"{str(make).strip()} {model_str}"
+                else:
+                    metadata["camera_model"] = model_str
 
-        # 3. Check MIME type
-        content_type = file.content_type or ""
-        if content_type.lower() not in settings.ALLOWED_IMAGE_MIMES:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Unsupported MIME type '{content_type}'. Allowed types: {', '.join(settings.ALLOWED_IMAGE_MIMES)}"
-            )
-
-    async def save_file(self, file: UploadFile, subfolder: str = "media") -> Dict[str, Any]:
-        """Saves an uploaded file according to configured storage provider (Local, Cloudinary, or S3)."""
-        content = await file.read()
-        self.validate_file(file, content)
-
-        ext = (file.filename or "image.jpg").split(".")[-1].lower()
-        unique_filename = f"{uuid.uuid4().hex}.{ext}"
-
-        if settings.STORAGE_PROVIDER == "cloudinary":
-            if not settings.CLOUDINARY_URL:
-                raise HTTPException(
-                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    detail="Cloudinary storage is configured, but CLOUDINARY_URL environment variable is missing on backend."
-                )
-            try:
-                import cloudinary
-                import cloudinary.uploader
-                upload_result = cloudinary.uploader.upload(content, folder=f"wanderlust/{subfolder}")
-                return {
-                    "image_url": upload_result.get("secure_url"),
-                    "thumbnail_url": upload_result.get("secure_url"),
-                    "filename": unique_filename,
-                    "size_bytes": len(content),
-                    "storage_provider": "cloudinary"
-                }
-            except Exception as e:
-                logger.error(f"Cloudinary upload failed: {e}")
-                raise HTTPException(
-                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    detail=f"Cloudinary upload error: {str(e)}"
-                )
-
-        elif settings.STORAGE_PROVIDER == "s3":
-            if not settings.AWS_S3_BUCKET:
-                raise HTTPException(
-                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    detail="AWS S3 storage is configured, but AWS_S3_BUCKET environment variable is missing on backend."
-                )
-            try:
-                import boto3
-                s3 = boto3.client("s3")
-                s3_key = f"uploads/{subfolder}/{unique_filename}"
-                s3.put_object(Bucket=settings.AWS_S3_BUCKET, Key=s3_key, Body=content, ContentType=file.content_type)
-                s3_url = f"https://{settings.AWS_S3_BUCKET}.s3.amazonaws.com/{s3_key}"
-                return {
-                    "image_url": s3_url,
-                    "thumbnail_url": s3_url,
-                    "filename": unique_filename,
-                    "size_bytes": len(content),
-                    "storage_provider": "s3"
-                }
-            except Exception as e:
-                logger.error(f"AWS S3 upload failed: {e}")
-                raise HTTPException(
-                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    detail=f"AWS S3 upload error: {str(e)}"
-                )
-
-        else:
-            # Default Local Storage
-            now = datetime.now()
-            rel_dir = os.path.join(now.strftime("%Y"), now.strftime("%m"))
-            target_dir = os.path.join(self.upload_dir, rel_dir)
-            os.makedirs(target_dir, exist_ok=True)
-
-            target_path = os.path.join(target_dir, unique_filename)
-            with open(target_path, "wb") as f:
-                f.write(content)
-
-            # Web-accessible URL path
-            url_path = f"/uploads/{now.strftime('%Y')}/{now.strftime('%m')}/{unique_filename}"
-            return {
-                "image_url": url_path,
-                "thumbnail_url": url_path,
-                "filename": unique_filename,
-                "size_bytes": len(content),
-                "storage_provider": "local"
-            }
-
-    def delete_file(self, image_url: str) -> bool:
-        """Safely removes file from local disk if it starts with /uploads."""
-        if image_url.startswith("/uploads/"):
-            rel_path = image_url.replace("/uploads/", "")
-            full_path = os.path.join(self.upload_dir, rel_path.replace("/", os.sep))
-            if os.path.exists(full_path):
+            # Extract DateTime (Tag 306 or Tag 36867 in Exif IFD)
+            date_str = exif.get(306)
+            if not date_str:
                 try:
-                    os.remove(full_path)
-                    return True
-                except Exception as e:
-                    logger.error(f"Error deleting file {full_path}: {e}")
+                    exif_ifd = exif.get_ifd(ExifTags.IFD.Exif)
+                    date_str = exif_ifd.get(36867) or exif_ifd.get(36868)
+                except Exception:
+                    pass
+
+            if date_str:
+                try:
+                    metadata["taken_at"] = datetime.strptime(str(date_str).strip(), "%Y:%m:%d %H:%M:%S")
+                except Exception:
+                    pass
+
+            # Extract GPS Info
+            try:
+                gps_ifd = exif.get_ifd(ExifTags.IFD.GPSInfo)
+                if gps_ifd:
+                    # Latitude (Tag 2), Ref (Tag 1)
+                    lat_data = gps_ifd.get(2)
+                    lat_ref = gps_ifd.get(1)
+                    # Longitude (Tag 4), Ref (Tag 3)
+                    lon_data = gps_ifd.get(4)
+                    lon_ref = gps_ifd.get(3)
+
+                    def _convert_dms(dms_tuple):
+                        if not dms_tuple or len(dms_tuple) < 3:
+                            return None
+                        d = float(dms_tuple[0])
+                        m = float(dms_tuple[1])
+                        s = float(dms_tuple[2])
+                        return d + (m / 60.0) + (s / 3600.0)
+
+                    if lat_data and lon_data:
+                        lat_val = _convert_dms(lat_data)
+                        lon_val = _convert_dms(lon_data)
+                        if lat_val is not None and lon_val is not None:
+                            if lat_ref == 'S':
+                                lat_val = -lat_val
+                            if lon_ref == 'W':
+                                lon_val = -lon_val
+                            metadata["gps_latitude"] = round(lat_val, 6)
+                            metadata["gps_longitude"] = round(lon_val, 6)
+            except Exception as e:
+                logger.debug("GPS extraction note: %s", e)
+
+            # Verification rule: Authentic if camera model or valid capture timestamp or GPS is present
+            if metadata["camera_model"] or metadata["taken_at"] or metadata["gps_latitude"]:
+                metadata["is_verified_authentic"] = True
+
+        except Exception as e:
+            logger.debug("EXIF parsing error (non-fatal): %s", e)
+
+        return metadata
+
+    def save_file(self, file_bytes: bytes, original_filename: str, content_type: str) -> Dict[str, Any]:
+        """
+        Saves uploaded media to local storage with EXIF physical verification.
+        """
+        ext = os.path.splitext(original_filename)[1].lower()
+        if not ext:
+            if "png" in content_type:
+                ext = ".png"
+            elif "webp" in content_type:
+                ext = ".webp"
+            else:
+                ext = ".jpg"
+
+        file_id = str(uuid.uuid4())
+        unique_filename = f"{file_id}{ext}"
+        file_path = os.path.join(self.upload_dir, unique_filename)
+
+        with open(file_path, "wb") as f:
+            f.write(file_bytes)
+
+        # Extract EXIF metadata
+        exif_info = self._extract_exif_metadata(file_bytes)
+
+        # Generate access URL
+        public_url = f"/api/v1/media/{unique_filename}"
+        
+        return {
+            "image_url": public_url,
+            "filename": unique_filename,
+            "camera_model": exif_info["camera_model"],
+            "taken_at": exif_info["taken_at"],
+            "gps_latitude": exif_info["gps_latitude"],
+            "gps_longitude": exif_info["gps_longitude"],
+            "is_verified_authentic": exif_info["is_verified_authentic"]
+        }
+
+    def delete_file(self, filename: str) -> bool:
+        """Deletes a file from the local upload directory."""
+        try:
+            path = os.path.join(self.upload_dir, filename)
+            if os.path.exists(path):
+                os.remove(path)
+                return True
+        except Exception as e:
+            logger.error("Failed to delete local file %s: %s", filename, e)
         return False
 
 storage_service = StorageService()

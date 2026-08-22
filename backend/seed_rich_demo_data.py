@@ -1,6 +1,6 @@
 import os
 import sys
-from datetime import date
+from datetime import date, datetime, timezone
 
 # Add backend directory to sys.path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -430,7 +430,7 @@ def seed_rich_data():
                 ai_data.processing_status = "completed"
             db.commit()
 
-            # Photos
+            # Photos with verified physical EXIF metadata
             db.query(ReviewPhoto).filter(ReviewPhoto.review_id == rev_obj.id).delete()
             for p_idx, p_url in enumerate(rd["photos"]):
                 photo_obj = ReviewPhoto(
@@ -439,7 +439,10 @@ def seed_rich_data():
                     review_id=rev_obj.id,
                     location_id=rd["location_id"],
                     image_url=p_url,
-                    display_order=p_idx
+                    display_order=p_idx,
+                    camera_model="Sony Alpha A7 IV (24-70mm GM II)",
+                    taken_at=datetime(2026, 8, 15, 10, 30, tzinfo=timezone.utc),
+                    is_verified_authentic=True
                 )
                 db.add(photo_obj)
             db.commit()
