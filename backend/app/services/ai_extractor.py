@@ -65,17 +65,21 @@ class AIExtractorService:
         client = genai.Client(api_key=settings.GEMINI_API_KEY)
         prompt = f"{SYSTEM_PROMPT}\n\nReview Text:\n\"\"\"{raw_text}\"\"\"\nCurrency hint: {currency}"
         
-        response = client.models.generate_content(
-            model='gemini-2.5-flash',
-            contents=prompt,
-            config={
-                'response_mime_type': 'application/json',
-                'response_schema': AIExtractionResult,
-            }
-        )
-        if response.text:
-            data = json.loads(response.text)
-            return AIExtractionResult(**data)
+        for model_name in ['gemini-2.0-flash', 'gemini-1.5-flash']:
+            try:
+                response = client.models.generate_content(
+                    model=model_name,
+                    contents=prompt,
+                    config={
+                        'response_mime_type': 'application/json',
+                        'response_schema': AIExtractionResult,
+                    }
+                )
+                if response.text:
+                    data = json.loads(response.text)
+                    return AIExtractionResult(**data)
+            except Exception as e:
+                logger.debug("Gemini extraction attempt for %s failed: %s", model_name, e)
         return None
 
     def _call_openai(self, raw_text: str, currency: str) -> Optional[AIExtractionResult]:
